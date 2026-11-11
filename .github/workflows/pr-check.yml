@@ -1,20 +1,82 @@
-name: PR Check
+name: Build Check
 
 on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - fix-branch-name
   pull_request:
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
 
 jobs:
+  changed-files:
+    name: Detect changed project files
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changed-files.outputs.frontend }}
+      backend: ${{ steps.changed-files.outputs.backend }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed project files
+        id: changed-files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$BASE_SHA"
+            head="$HEAD_SHA"
+          elif [[ "$EVENT_NAME" == "push" && "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            base="$BEFORE_SHA"
+            head="$GITHUB_SHA"
+          else
+            base="HEAD^"
+            head="HEAD"
+          fi
+
+          changed_files="$(git diff --name-only "$base" "$head" || true)"
+          echo "Changed files:"
+          echo "$changed_files"
+
+          frontend=false
+          backend=false
+
+          if grep -Eq '^(frontend/|package(-lock)?\.json$)' <<< "$changed_files"; then
+            frontend=true
+          fi
+
+          if grep -Eq '^(gateway/|services/|docker-compose|.*\.xml$)' <<< "$changed_files"; then
+            backend=true
+          fi
+
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+
   frontend:
     name: Frontend build
+    needs: changed-files
+    if: needs.changed-files.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Node.js
@@ -31,7 +93,9 @@ jobs:
         run: npm run build
 
   backend:
-    name: Backend tests (${{ matrix.project }})
+    name: Backend build (${{ matrix.project }})
+    needs: changed-files
+    if: needs.changed-files.outputs.backend == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -43,7 +107,7 @@ jobs:
           - services/project-service
           - services/task-service
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -53,6 +117,6 @@ jobs:
           java-version: 21
           cache: maven
 
-      - name: Test backend
+      - name: Build backend
         working-directory: ${{ matrix.project }}
         run: mvn --batch-mode --no-transfer-progress verify
