@@ -107,3 +107,19 @@ Server prerequisites (EC2):
 - Security Group allows inbound `GATEWAY_PORT` (default `8090`)
 
 After the first deploy, edit `/opt/unitify/.env` on the server to set real values (JWT secret, postgres password, etc.).
+
+## Terraform AWS infrastructure
+
+The `infra/terraform` configuration creates a VPC, public subnet, internet gateway, security group, IAM instance profile, and Docker-ready Ubuntu EC2 instance for the Compose deployment.
+
+Before using the manual workflows, create an S3 bucket for Terraform state and configure these repository secrets:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+- `TF_STATE_BUCKET`
+- `TF_STATE_KEY`
+- `EC2_KEY_NAME` (existing EC2 key pair name, optional)
+- `EC2_ALLOWED_SSH_CIDR` (SSH source CIDR, optional)
+
+Run **Terraform Apply** to create or update the infrastructure. Run **Terraform Destroy** only when the infrastructure should be removed; it requires typing `DESTROY` in the workflow input.
